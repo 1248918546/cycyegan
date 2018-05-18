@@ -10,6 +10,7 @@ from PIL import  Image
 
 from models import Generator
 from models import Discriminator
+from models import GANLoss
 from utils import ReplayBuffer
 from utils import LambdaLR
 from utils import Logger
@@ -36,7 +37,9 @@ print(opt)
 #Networks
 netG_A2B = Generator(opt.input_nc, opt.output_nc)
 netG_B2A = Generator(opt.output_nc, opt.input_nc)
+#print(netG_A2B)
 netD_A = Discriminator(opt.input_nc)
+#print(netD_A)
 netD_B = Discriminator(opt.output_nc)
 
 
@@ -51,17 +54,12 @@ netG_B2A.apply(weights_init_normal)
 netD_A.apply(weights_init_normal)
 netD_B.apply(weights_init_normal)
 
-#Losses
-criterion_GAN = torch.nn.MSELoss()
-criterion_cycle = torch.nn.L1Loss()
-criterion_identity = torch.nn.L1Loss()
-
 #Optimizer
 optimizer_G = torch.optim.Adam(itertools.chain(netG_A2B.parameters(),netG_B2A.parameters()),
                                lr=opt.lr, betas=(0.5, 0.999))
-optimizer_D_A = torch.optim.Adam(netD_A.parameters(),
+optimizer_D_A = torch.optim.Adam(list(netD_A.parameters()),
                                  lr = opt.lr, betas=(0.5, 0.999))
-optimizer_D_B = torch.optim.Adam(netD_B.parameters(),
+optimizer_D_B = torch.optim.Adam(list(netD_B.parameters()),
                                  lr = opt.lr, betas=(0.5, 0.999))
 
 #LR schedulers
@@ -78,6 +76,11 @@ target_fake = Variable(Tensor(opt.batchSize).fill_(0.0), requires_grad=False)
 
 fake_A_buffer = ReplayBuffer()
 fake_B_buffer = ReplayBuffer()
+
+#Losses
+criterion_GAN = GANLoss(Tensor)
+criterion_cycle = torch.nn.L1Loss()
+criterion_identity = torch.nn.L1Loss()
 
 #Dataset loader
 transform = [ transforms.Resize(int(opt.size*1.12), Image.BICUBIC),
@@ -105,27 +108,27 @@ for epoch in range(opt.epoch, opt.n_epochs):
         optimizer_G.zero_grad()
 
         #Identity loss
-        #G_A2B(B)=B
-        same_B = netG_A2B(real_B)
+        #G_A2B(B) = B
+        same_B = netG_A2B.forward(real_B)
         loss_identity_B = criterion_identity(same_B, real_B)*5.0
         #G_B2A(A) = A
-        same_A = netG_B2A(real_A)
+        same_A = netG_B2A.forward(real_A)
         loss_identity_A = criterion_identity(same_A, real_A)*5.0
 
         #GAN loss
-        fake_B = netG_A2B(real_A)
-        pred_fake = netD_B(fake_B)
-        loss_GAN_A2B = criterion_GAN(pred_fake, target_real)
+        fake_B = netG_A2B.forward(real_A)
+        pred_fake = netD_B.forward(fake_B)
+        loss_GAN_A2B = criterion_GAN(pred_fake, True)
 
-        fake_A = netG_B2A(real_B)
-        pred_fake = netD_A(fake_A)
-        loss_GAN_B2A = criterion_GAN(pred_fake, target_real)
+        fake_A = netG_B2A.forward(real_B)
+        pred_fake = netD_A.forward(fake_A)
+        loss_GAN_B2A = criterion_GAN(pred_fake, True)
 
         #Cycle loss
-        recovered_A = netG_B2A(fake_B)
+        recovered_A = netG_B2A.forward(fake_B)
         loss_cycle_ABA = criterion_cycle(recovered_A, real_A)*10.0
 
-        recovered_B = netG_A2B(fake_A)
+        recovered_B = netG_A2B.forward(fake_A)
         loss_cycle_BAB = criterion_cycle(recovered_B, real_B)*10.0
 
         #Total loss
@@ -141,13 +144,13 @@ for epoch in range(opt.epoch, opt.n_epochs):
         optimizer_D_A.zero_grad()
 
         #Real loss
-        pred_real = netD_A(real_A)
-        loss_D_real = criterion_GAN(pred_real, target_real)
+        pred_real = netD_A.forward(real_A)
+        loss_D_real = criterion_GAN(pred_real, True)
 
         #Fake loss
         fake_A = fake_A_buffer.push_and_pop(fake_A)
-        pred_fake = netD_A(fake_A.detach()) #阻断反向传播
-        loss_D_fake = criterion_GAN(pred_fake, target_fake)
+        pred_fake = netD_A.forward(fake_A.detach()) #阻断反向传播
+        loss_D_fake = criterion_GAN(pred_fake, False)
 
         #Total loss
         loss_D_A = (loss_D_real + loss_D_fake)*0.5
@@ -161,13 +164,13 @@ for epoch in range(opt.epoch, opt.n_epochs):
         optimizer_D_B.zero_grad()
 
         #Real loss
-        pred_real = netD_B(real_B)
-        loss_D_real = criterion_GAN(pred_real, target_real)
+        pred_real = netD_B.forward(real_B)
+        loss_D_real = criterion_GAN(pred_real, True)
 
         #Fake loss
         fake_B = fake_B_buffer.push_and_pop(fake_B)
-        pred_fake = netD_B(fake_B.detach())
-        loss_D_fake = criterion_GAN(pred_fake, target_fake)
+        pred_fake = netD_B.forward(fake_B.detach())
+        loss_D_fake = criterion_GAN(pred_fake, False)
 
         #Total loss
         loss_D_B = (loss_D_real + loss_D_fake)*0.5
@@ -188,16 +191,6 @@ for epoch in range(opt.epoch, opt.n_epochs):
                             'real_B' : real_B,
                             'fake_A' : fake_A,
                             'fake_B' : fake_B})
-
-        del real_A
-        del real_B
-        del same_A
-        del same_B
-        del fake_A
-        del fake_B
-        del recovered_A
-        del recovered_B
-        gc.collect()
 
     #Update learning rates
     lr_scheduler_G.step()

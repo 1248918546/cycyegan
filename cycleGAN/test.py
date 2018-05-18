@@ -70,8 +70,8 @@ for i, batch in enumerate(dataloader):
     real_B = Variable(input_A.copy_(batch['B']))
 
     #Generator output
-    fake_B = 0.5*(netG_A2B(real_A).data + 1.0)
-    fake_A = 0.5*(netG_B2A(real_B).data + 1.0)
+    fake_B = 0.5*(netG_A2B.forward(real_A).data + 1.0)
+    fake_A = 0.5*(netG_B2A.forward(real_B).data + 1.0)
 
     #Save images
     save_image(fake_A, 'output/A/%04d.png' % (i + 1))
