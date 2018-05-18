@@ -78,7 +78,7 @@ fake_A_buffer = ReplayBuffer()
 fake_B_buffer = ReplayBuffer()
 
 #Losses
-criterion_GAN = GANLoss(Tensor)
+criterion_GAN = GANLoss(tensor=Tensor)
 criterion_cycle = torch.nn.L1Loss()
 criterion_identity = torch.nn.L1Loss()
 
